@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mappa di Rete</title>
+
+    <!-- 1. Leaflet style(map lib) -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+     integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+     crossorigin=""/>
+    <link rel="stylesheet" type="text/css" href="stile.css">
+    
+    <!-- 2. Font Awesome for the icon -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+    <style>
+        
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0.3; }
+        }
+        
+        .marker-blink {
+            animation: blink 0.5s ease-in-out 3;
+        }
+        
+        
+        .custom-div-icon {
+            background: none !important;
+            border: none !important;
+            cursor: pointer;
+        }
+        
+        .custom-div-icon i {
+            pointer-events: none; 
+            transition: opacity 0.1s ease;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="interface"><i id="text">Packets Map</i></div>
+
+    <!-- Packet Panel-->
+    <div id="packets-panel" class="packets-panel">
+        <div class="packets-panel-close" onclick="closePacketsPanel()">×</div>
+        <h4>PACKETS LOG</h4>
+        <div id="packets-content">
+            <p style="color: #666; font-style: italic;">Seleziona un server per visualizzare i pacchetti...</p>
+        </div>
+    </div>
+
+    <!-- Info Panel -->
+    <div id="info-panel" class="info-panel">
+        <div class="info-panel-close" onclick="closeInfoPanel()">×</div>
+        <h4>SERVER DETAILS</h4>
+        <div id="info-content"></div>
+    </div>
+    
+    <div id="map"></div>
+
+
+    <!-- 3. Leaflet code -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+     crossorigin=""></script>
+
+   <script>
+        // --- SERVER TRAKER ---
+        const serverTracker = {}; 
+        const markerTracker = {}; 
+        const locationTracker = {}; 
+        let currentOpenServer = null; 
+        // --- PACKETS PANEL (LEFT) ---
+        let currentPacketsServer = null; 
+        const serverPackets = {}; 
+
+        
+        function getLocationKey(location) {
+            
+            return `${location[0].toFixed(4)},${location[1].toFixed(4)}`;
+        }
+
+        
+        function getServersAtLocation(location) {
+            const locationKey = getLocationKey(location);
+            return locationTracker[locationKey] || [];
+        }
+
+       
+        function addServerToLocationTracker(server) {
+            const locationKey = getLocationKey(server.location);
+            if (!locationTracker[locationKey]) {
+                locationTracker[locationKey] = [];
+            }
+            
+            if (!locationTracker[locationKey].find(s => s.ip === server.ip)) {
+                locationTracker[locationKey].push(server);
+            }
+        }
+
+        function openPacketsPanel(serverData) {
+            const panel = document.getElementById('packets-panel');
+            const content = document.getElementById('packets-content');
+            
+            
+            currentPacketsServer = serverData.ip;
+            
+            
+            updatePacketsPanelContent(serverData);
+            
+            panel.classList.add('active');
+        }
+
+        function updatePacketsPanelContent(serverData) {
+            const content = document.getElementById('packets-content');
+            const packets = serverPackets[serverData.ip] || [];
+            
+            let packetsHtml = `
+                <div class="packets-header">
+
+                    <p><b>Server:</b> <code>${serverData.name}</code></p>
+                    <p><b>IP:</b> <code>${serverData.ip}</code></p>
+                    <p><b>Total Packets:</b> <code>${packets.length}</code></p>
+                </div>
+                <div class="packets-separator"></div>
+                <div class="packets-list">
+            `;
+            
+            if (packets.length === 0) {
+                packetsHtml += `
+                    <div class="no-packets">
+                        <i class="fa-solid fa-info-circle"></i>
+                        <p>Nessun pacchetto registrato per questo server</p>
+                    </div>
+                `;
+            } else {
+                
+                const recentPackets = packets.slice().reverse();
+                
+                recentPackets.forEach((packet, index) => {
+                    packetsHtml += `
+                        <div class="packet-entry ${index === 0 ? 'latest-packet' : ''}">
+                            <div class="packet-header">
+                                <span class="packet-time">${packet.timestamp}</span>
+                                <span class="packet-protocol">${packet.protocol}(${packet.transport_protocol})</span>
+                            </div>
+                            <div class="packet-details">
+                                <code class="packet-data">${packet.data}</code>
+                            </div>
+                            <div class="packet-meta">
+                                <span class="packet-size">${packet.size} bytes</span>
+                                <span class="packet-status ${packet.status.toLowerCase()}">${packet.status}</span>
+                            </div>
+                        </div>
+                    `;
+                });
+            }
+            
+            packetsHtml += `
+                </div>
+            `;
+            
+            content.innerHTML = packetsHtml;
+            
+            
+            content.scrollTop = 0;
+        }
+
+        function closePacketsPanel() {
+            const panel = document.getElementById('packets-panel');
+            panel.classList.remove('active');
+            currentPacketsServer = null;
+        }
+
+        
+        function addPacket(serverIp, packetData) {
+            if (!serverPackets[serverIp]) {
+                serverPackets[serverIp] = [];
+            }
+            
+            const packet = {
+                timestamp: new Date().toLocaleString('it-IT'),
+                protocol: packetData.protocol,
+                transport_protocol: packetData.transport_protocol,
+                data: packetData.data || 'Data packet received',
+                size: packetData.size,
+                status: packetData.status || 'OK'
+            };
+            
+            serverPackets[serverIp].push(packet);
+
+            
+            if (currentPacketsServer === serverIp) {
+                updatePacketsPanelContent(serverTracker[serverIp]);
+            }
+        }
+
+       
+        function openPacketsPanelByIP(serverIp) {
+            const serverData = serverTracker[serverIp];
+            if (serverData) {
+                openPacketsPanel(serverData);
+            }
+        }
+
+        // -- INFO PANEL ---
+        function openInfoPanel(serverData) {
+            const panel = document.getElementById('info-panel');
+            const content = document.getElementById('info-content');
+            
+            
+            currentOpenServer = serverData.ip;
+            
+           
+            updateInfoPanelContent(serverData);
+            
+            panel.classList.add('active');
+        }
+
+        function updateInfoPanelContent(serverData) {
+            const content = document.getElementById('info-content');
+            
+            
+            const serversAtLocation = getServersAtLocation(serverData.location);
+            
+            let locationIndicatorsHtml = '';
+            
+           
+            if (serversAtLocation.length > 1) {
+                locationIndicatorsHtml = `
+                    <div class="location-indicators">
+                        <h5>Servers at this location (${serversAtLocation.length})</h5>
+                        <div class="server-indicators">
+                `;
+                
+                serversAtLocation.forEach(server => {
+                    const isActive = server.ip === serverData.ip;
+                    locationIndicatorsHtml += `
+                        <div class="server-indicator ${isActive ? 'active' : ''}" 
+                             onclick="switchToServer('${server.ip}')"
+                             title="Switch to ${server.name}">
+                            <div class="server-indicator-dot"></div>
+                            <span class="server-indicator-name">${server.name}</span>
+                        </div>
+                    `;
+                });
+                
+                locationIndicatorsHtml += `
+                        </div>
+                    </div>
+                `;
+            }
+            
+            content.innerHTML = `
+                <p><b>Server:</b> <code>${serverData.name}</code></p>
+                <p><b>IP Address:</b> <code>${serverData.ip}</code></p>
+                <p><b>Location:</b> <code>${serverData.location[0].toFixed(4)}, ${serverData.location[1].toFixed(4)}</code></p>
+                <p><b>Status:</b> <code>ONLINE</code></p>
+                <p><b>Contact Count:</b> <code id="panel-contact-count">${serverData.contactCount}</code></p>
+                <p><b>Details:</b> ${serverData.long_details}</p>
+                ${locationIndicatorsHtml}
+                <button class="button" onclick="openPacketsPanelByIP('${serverData.ip}')">Show all packets</button>
+            `;
+        }
+
+        
+        function switchToServer(serverIp) {
+            const serverData = serverTracker[serverIp];
+            if (serverData) {
+                currentOpenServer = serverIp;
+                updateInfoPanelContent(serverData);
+                
+                
+                if (document.getElementById('packets-panel').classList.contains('active')) {
+                    currentPacketsServer = serverIp;
+                    updatePacketsPanelContent(serverData);
+                }
+            }
+        }
+
+        function closeInfoPanel() {
+            const panel = document.getElementById('info-panel');
+            panel.classList.remove('active');
+            currentOpenServer = null;
+        }
+
+        
+        function updateInfoPanelContactCount(contactCount) {
+            const countElement = document.getElementById('panel-contact-count');
+            if (countElement) {
+                countElement.textContent = contactCount;
+               
+                countElement.classList.add('contact-count-update');
+                setTimeout(() => {
+                    countElement.classList.remove('contact-count-update');
+                }, 500);
+            }
+        }
+
+        
+        function checkAndUpdateInfoPanel(location) {
+            
+            if (!currentOpenServer) return;
+            
+           
+            const currentServerData = serverTracker[currentOpenServer];
+            if (!currentServerData) return;
+            
+            
+            const currentLocationKey = getLocationKey(currentServerData.location);
+            const newLocationKey = getLocationKey(location);
+            
+            if (currentLocationKey === newLocationKey) {
+                
+                updateInfoPanelContent(currentServerData);
+            }
+        }
+
+        // --- MAP INIT ---
+
+       
+        const map = L.map('map', {
+            center: [48, 15],
+            zoom: 2,
+            maxBounds: [
+                [-90, -360], 
+                [90, 360]    
+            ],
+            maxBoundsViscosity: 1.0,  
+            worldCopyJump: true, 
+            zoomControl: false
+        }).setView([30, 0], 2);
+
+        
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+            subdomains: 'abcd',
+            minZoom: 2,
+            maxZoom: 18
+        }).addTo(map);
+
+        console.log("Mappa inizializzata. In attesa di dati da Python...");
+
+        // --- FUNCTION CALLED IN PYTHON ---
+
+        /**
+         * Add a marker on the map or update the counter if marker already exists
+         * This function is called in python with "window.evaluate_js"
+         * @param {object} server - An object that contains server data (location, name, ip, details, long_details, color, protocol).
+         * @param {packet_received} - An object that contains (protocol, transport_protocol, length, source, destination, ip_source, ip_destination)
+         */
+        function addMarker(server, packet_received) {
+            console.log("Dati ricevuti da Python:", server);
+
+            
+            const packetData = {
+                protocol: packet_received.protocol || 'TCP',
+                data: `Packet from ${packet_received.source} (${packet_received.ip_source}) To ${packet_received.destination} (${packet_received.ip_destination})`,
+                size: packet_received.length,
+                transport_protocol: packet_received.transport_protocol,
+                status: 'OK'
+            };
+    
+            addPacket(server.ip, packetData);
+
+            
+            if (serverTracker[server.ip]) {
+                
+                serverTracker[server.ip].contactCount++;
+                
+                
+                updateMarker(server.ip);
+                
+                
+                if (currentOpenServer === server.ip) {
+                    updateInfoPanelContactCount(serverTracker[server.ip].contactCount);
+                }
+                
+                console.log(`Server ${server.ip} aggiornato. Contatti: ${serverTracker[server.ip].contactCount}`);
+            } else {
+                
+                server.contactCount = 1;
+                serverTracker[server.ip] = server;
+                
+                
+                addServerToLocationTracker(server);
+                
+                createNewMarker(server);
+                
+                checkAndUpdateInfoPanel(server.location);
+                
+                console.log(`Nuovo server ${server.ip} aggiunto. Contatti: 1`);
+            }
+        }
+
+        function createNewMarker(server) {
+            
+            const serversAtLocation = getServersAtLocation(server.location);
+            const isMultipleServers = serversAtLocation.length > 1;
+            
+            
+            if (isMultipleServers) {
+                updateExistingLocationMarker(server.location);
+                return;
+            }
+
+           
+            const customIcon = L.divIcon({
+                html: `<i class="fa-regular fa-circle-dot" style="font-size: 24px; color: ${server.color};"></i>`,
+                className: 'custom-div-icon', 
+                iconSize: [24, 24],
+                iconAnchor: [12, 24],
+                popupAnchor: [0, -24]
+            });
+
+            
+            const popupContent = createTooltipContent(server.location);
+
+            
+            const marker = L.marker(server.location, { icon: customIcon })
+             .addTo(map)
+             .bindTooltip(popupContent, {
+                    permanent: false,
+                    direction: 'auto',
+                    offset: [0, -10],
+                    opacity: 1,
+                    className: 'custom-tooltip'
+                });
+        
+            
+            marker.on('click', function() {
+                closePacketsPanel(); 
+                
+                const serversAtLoc = getServersAtLocation(server.location);
+                openInfoPanel(serversAtLoc[0]); 
+            });
+            
+            
+            marker.on('dblclick', function() {
+                const serversAtLoc = getServersAtLocation(server.location);
+                openPacketsPanel(serversAtLoc[0]); 
+            });
+
+            
+            const locationKey = getLocationKey(server.location);
+            markerTracker[locationKey] = marker;
+        }
+
+        
+        function createTooltipContent(location) {
+            const serversAtLocation = getServersAtLocation(location);
+            
+            if (serversAtLocation.length === 1) {
+                const server = serversAtLocation[0];
+                return `
+                    <div style="font-size: 14px;">
+                        <h4 style="margin-bottom: 10px; color: #333;">${server.name}</h4>
+                        <p style="margin: 5px 0;">
+                            <b>IP:</b> <code>${server.ip}</code><br>
+                            <b>Contatti:</b> <span class="contact-count">${server.contactCount}</span><br>
+                            <b>Info:</b> ${server.details}
+                        </p>
+                    </div>
+                `;
+            } else {
+                
+                let content = `<div style="font-size: 14px;">
+                    <h4 style="margin-bottom: 10px; color: #333;">Multiple Servers (${serversAtLocation.length})</h4>
+                `;
+                
+                serversAtLocation.forEach((server, index) => {
+                    content += `
+                        <div style="margin: 5px 0; padding: 5px; ${index > 0 ? 'border-top: 1px solid #eee;' : ''}">
+                            <b>${server.name}</b><br>
+                            <b>IP:</b> <code>${server.ip}</code><br>
+                            <b>Contatti:</b> <span class="contact-count">${server.contactCount}</span>
+                        </div>
+                    `;
+                });
+                
+                content += `</div>`;
+                return content;
+            }
+        }
+
+        
+        function updateExistingLocationMarker(location) {
+            const locationKey = getLocationKey(location);
+            const marker = markerTracker[locationKey];
+            
+            if (marker) {
+                
+                const popupContent = createTooltipContent(location);
+                marker.setTooltipContent(popupContent);
+            }
+        }
+
+        
+        function updateMarker(ip) {
+            const server = serverTracker[ip];
+            
+            if (server) {
+                const locationKey = getLocationKey(server.location);
+                const marker = markerTracker[locationKey];
+
+                if (marker) {
+                    
+                    const popupContent = createTooltipContent(server.location);
+                    marker.setTooltipContent(popupContent);
+
+                    
+                    const element = marker.getElement();
+                    if (element) {
+                        
+                        element.classList.remove('marker-blink');
+                        
+                        
+                        void element.offsetWidth;
+                        
+                        
+                        element.classList.add('marker-blink');
+                        
+                        
+                        setTimeout(() => {
+                            element.classList.remove('marker-blink');
+                        }, 2400);
+                    }
+                }
+            }
+        }
+
+        
+        map.on('click', function() {
+            closeInfoPanel();
+            closePacketsPanel();
+        });
+
+        
+        document.getElementById('info-panel').addEventListener('click', function(e) {
+            e.stopPropagation();
+        });
+        
+        document.getElementById('packets-panel').addEventListener('click', function(e) {
+            e.stopPropagation();
+        });
+
+    </script>
+
+</body>
+</html>
