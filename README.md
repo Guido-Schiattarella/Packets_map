@@ -115,7 +115,7 @@ Before running the application, you **must** configure the sniffer script (`snif
 Before running the application, you **must** configure the sniffer script (`sniffer.py`):
 
 1. **Set the Network Interface**:
-   Open `sniffer.py` and find the `INTERFACE_FOR_PYSHARK` variable. Change its value to the name of the network interface you want to monitor (e.g., `eth0` for Ethernet, `wlan0` or `en0` for Wi-Fi).
+   Open `sniffer.py` and find the `INTERFACE_FOR_PYSHARK` variable. Change its value to the name of the network interface you want to monitor.
 
    ```python
    # sniffer.py
@@ -123,7 +123,7 @@ Before running the application, you **must** configure the sniffer script (`snif
    ########################################
    ## INSERT HERE YOUR NETWORK INTERFACE ##
    ########################################
-   INTERFACE_FOR_PYSHARK = 'your_interface_name_here' # e.g., 'wlp0s20f3', 'eth0'
+   INTERFACE_FOR_PYSHARK = 'your_interface_name_here' 
    
    ```
    
@@ -222,10 +222,6 @@ C:\Program Files\Wireshark\tshark.exe -D
   
 Copy the entire string corresponding to the desired network interface name, up to and including the }  
  
-
-Common interface names:
-- **Ethernet**: `eth0`, `en0`, `enp0s3`
-- **WiFi**: `wlan0`, `wlp0s20f3`, `en1`
 
 
 ## To take your Network Interface GUID  
